@@ -1,0 +1,111 @@
+import cv2
+import os
+import hashlib
+
+# Create mappings for character to ASCII and vice versa
+char_to_ascii = {chr(i): i for i in range(256)}
+ascii_to_char = {i: chr(i) for i in range(256)}
+
+# Function to read an image
+def read_image(img_path):
+    img = cv2.imread(img_path)
+    if img is None:
+        raise FileNotFoundError(f"Cannot locate image at {img_path}. Please verify the file path.")
+    return img
+
+# Function to save and display the modified image
+def write_and_open_image(img, out_path):
+    cv2.imwrite(out_path, img)
+    print(f"Data embedding in image completed. Saved as {out_path}.")
+    os.startfile(out_path)
+
+# Secure the key by hashing
+def secure_key(key_input):
+    return hashlib.sha256(key_input.encode()).digest()
+
+# Function to embed text into the image
+def embed_text(img, message, key_input):
+    rows, cols, _ = img.shape
+    key = secure_key(key_input)
+    key_len = len(key)
+    msg_len = len(message)
+    k_idx = 0
+    channel = 0  # BGR plane
+
+    # Embed the length of the message
+    len_str = str(msg_len).zfill(8)  # Ensure it's 8 digits long
+    message = len_str + message
+
+    for char in message:
+        r = (k_idx // cols) % rows
+        c = k_idx % cols
+        img[r, c, channel] = char_to_ascii[char] ^ key[k_idx % key_len]
+        channel = (channel + 1) % 3
+        k_idx += 1
+
+    return img
+
+# Function to extract text from the image
+def extract_text(img, key_input):
+    rows, cols, _ = img.shape
+    key = secure_key(key_input)
+    key_len = len(key)
+    k_idx = 0
+    channel = 0  # BGR plane
+    decoded_msg = ""
+    len_str = ""
+
+    # Extract the length of the text first
+    for _ in range(8):
+        r = (k_idx // cols) % rows
+        c = k_idx % cols
+        decrypted_char = ascii_to_char[img[r, c, channel] ^ key[k_idx % key_len]]
+        len_str += decrypted_char
+        channel = (channel + 1) % 3
+        k_idx += 1
+    
+    msg_len = int(len_str)
+
+    # Extract the actual text
+    for _ in range(msg_len):
+        r = (k_idx // cols) % rows
+        c = k_idx % cols
+        decrypted_char = ascii_to_char[img[r, c, channel] ^ key[k_idx % key_len]]
+        decoded_msg += decrypted_char
+        channel = (channel + 1) % 3
+        k_idx += 1
+
+    return decoded_msg
+
+def main():
+    try:
+        img_path = input("Enter the path of the image to use: ")
+        img = read_image(img_path)
+
+        key_input = input("Enter the security key: ")
+        msg_to_embed = input("Enter the text to hide: ")
+
+        # Encode the text in the image
+        encoded_img = embed_text(img, msg_to_embed, key_input)
+        out_path = "stego_image.png"
+        write_and_open_image(encoded_img, out_path)
+
+        # Prompt user to decode the text
+        if input("\nEnter 1 to extract data from the image: ") == '1':
+            reentered_key = input("\nRe-enter the key to extract the text: ")
+            if key_input == reentered_key:
+                try:
+                    decoded_text = extract_text(encoded_img, reentered_key)
+                    print(f"\nHidden text was:\n{decoded_text}")
+                except Exception as e:
+                    print(f"An error occurred during decoding: {e}")
+            else:
+                print("Keys do not match. Unable to decode the text.")
+        else:
+            print("Exiting.")
+    
+    except Exception as e:
+        print(f"An error occurred: {e}")
+
+if _name_ == "_main_":
+    main()
